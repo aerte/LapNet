@@ -45,7 +45,7 @@ def default() -> ml_collections.ConfigDict:
   """
   # wavefunction output.
   cfg = ml_collections.ConfigDict({
-      'batch_size': 4096,  # batch size
+      'batch_size': 8,  # batch size
       # Config module used. Should be set in get_config function as either the
       # absolute module or relative to the configs subdirectory. Relative
       # imports must start with a '.' (e.g. .atom). Do *not* override on
@@ -59,7 +59,7 @@ def default() -> ml_collections.ConfigDict:
       # based on customized initialization
       'multi_host': False, 
       'optim': {
-          'iterations': 200000,  # number of iterations
+          'iterations': 20,  # number of iterations
           'optimizer': 'kfac',  # one of adam, kfac, lamb, none
           'rm_outlier': False,
           'local_energy_outlier_width': 20.0,
@@ -205,7 +205,8 @@ def default() -> ml_collections.ConfigDict:
       },
       'pretrain': {
           'method': 'hf',  # Method is one of 'hf', or 'direct_init'.
-          'iterations': 5000,  # Only used if method is 'hf'.
+          #'iterations': 5000,  # Only used if method is 'hf'.
+          'iterations': 1,
           'basis': 'ccpvdz',
           'use_hf_sample': True,
           'optim':'lamb',  # adam or lamb

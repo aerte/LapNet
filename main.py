@@ -20,9 +20,13 @@ import sys
 from absl import app
 from absl import flags
 from absl import logging
-from jax.config import config as jax_config
+from jax import config as jax_config
+#from jax.config import config as jax_config
 from lapnet import base_config
-from lapnet import train
+
+#from lapnet import train
+from lapnet import train2 as train
+
 from ml_collections.config_flags import config_flags
 import os
 os.environ['NVIDIA_TF32_OVERRIDE']="0"

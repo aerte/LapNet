@@ -18,7 +18,8 @@
 from absl import logging
 import functools
 import jax
-from jax.experimental import maps
+#from jax.sharding import Mesh
+from jax.experimental.maps import xmap, Mesh
 import jax.numpy as jnp
 import numpy as np
 
@@ -55,8 +56,8 @@ def broadcast_to_hosts(x: jnp.ndarray) -> jnp.ndarray:
     # Mask all except the 0-th device
     return jnp.where(jax.lax.axis_index('i') == 0, x, jnp.zeros_like(x))
 
-  with maps.Mesh(np.array(jax.devices()), ('all_devices',)):
-    return maps.xmap(
+  with Mesh(np.array(jax.devices()), ('all_devices',)):
+    return xmap(
         lambda: jax.lax.psum(main_mask(x), axis_name='i'),
         in_axes=(),
         out_axes={},

@@ -40,6 +40,9 @@ from lapnet import mcmc, networks, pretrain
 from lapnet.utils import det_filter, multi_host, statistics, system, writers
 from kfac_jax import utils as kfac_utils
 from typing_extensions import Protocol
+from lapnet.spring_update import SPRING_optax
+
+import jax.flatten_util
 
 
 def init_electrons(
@@ -344,6 +347,7 @@ def train(cfg: ml_collections.ConfigDict, writer_manager=None):
   network = lambda *args, **kwargs: signed_network(*args, **kwargs)[1]  # type: networks.LogWaveFuncLike
   batch_network = jax.vmap(
       network, in_axes=(None, 0), out_axes=0)  # batched network
+  single_batched_network = jax.vmap(jax.grad(network, argnums=0), in_axes=(None,0), out_axes=0) # sol
   # Set up checkpointing and restore params/data if necessary
   # Mirror behaviour of checkpoints in TF FermiNet.
   # Checkpoints are saved to save_path.
@@ -518,6 +522,7 @@ def train(cfg: ml_collections.ConfigDict, writer_manager=None):
         ),
         # debug=True
       )
+
       sharded_key, subkeys = kfac_jax.utils.p_split(sharded_key)
       opt_state = optimizer.init(params, subkeys, data)
       opt_state = opt_state_ckpt or opt_state  # avoid overwriting ckpted state
@@ -525,9 +530,19 @@ def train(cfg: ml_collections.ConfigDict, writer_manager=None):
       #########################################################################
     #elif
       # This is where an optax compatible version of SPRING should go
+    elif cfg.optim.optimizer == 'spring':
+
+        def flatten_grad(batch_parameters, data_positions) -> jnp.ndarray:
+            grad_tree = jax.grad(network)(batch_parameters, data_positions)
+            flat_grad = jax.flatten_util.ravel_pytree(grad_tree)[0]
+            return flat_grad
+
+        ravel = jax.vmap(flatten_grad, in_axes=(None, 0))
+
+        optimizer = SPRING_optax.scale_by_spring(network=ravel)
 
     #elif cfg.optim.optimizer == 'spring':
-    #    optimizer = get_spring_update_fn(batch_network) # Use config to set parameters here
+    #3    optimizer = get_spring_update_fn(batch_network) # Use config to set parameters here
 
       #########################################################################
 
@@ -547,6 +562,73 @@ def train(cfg: ml_collections.ConfigDict, writer_manager=None):
           mcmc_step=mcmc_step,
           optimizer_step=energy_eval)
 
+
+    # Actual spring update
+    ###########################################################################
+
+    elif cfg.optim.optimizer == 'spring':
+
+        opt_state = jax.pmap(optimizer.init)(params)
+        opt_state = opt_state_ckpt or opt_state  # avoid overwriting ckpted state
+
+        def opt_update(params: networks.ParamTree, data: jnp.ndarray,
+                       opt_state: Optional[optax.OptState],
+                       key: chex.PRNGKey) -> OptUpdateResults:
+            (loss, aux_data), grad = val_and_grad(params, key, data)
+
+            leaves = jax.tree_util.tree_leaves(grad)
+
+            #test = network(params[0], data)
+            #print(params)
+            #leaves = jax.tree_util.tree_leaves(params)
+            #or leave in leaves:
+            #    print(leave)
+
+            def flatten_grad(batch_parameters, data_positions) -> jnp.ndarray:
+                grad_tree = jax.grad(network)(batch_parameters, data_positions)
+                flat_grad = jax.flatten_util.ravel_pytree(grad_tree)[0]
+                return flat_grad
+
+            ravel = jax.vmap(flatten_grad, in_axes=(None, 0))
+            print(ravel(params, data))
+
+
+            from lapjax import LapTuple
+            #test = batch_network(params, data)
+            #test = jax.flatten_util.ravel_pytree(test)
+
+            from lapnet.spring_update.SPRING_optax import save_dict_to_desktop
+            grads, _ = jax.flatten_util.ravel_pytree(grad)
+
+            grad_shape = dict()
+            grad_shape['batched output'] = ravel(params, data)
+            grad_shape['output shape'] = ravel(params, data).shape
+            grad_shape['grad_shape'] = grads.shape
+            grad_shape['grad has this number of leaves:'] = len(leaves)
+            #grad_shape['network out'] = test.shape
+            tree_def = jax.tree_util.tree_structure(grad)
+            extra_string = tree_def.__repr__()
+            #grad_shape['network out'] = jax.debug.print('{test}',test)
+            #for i,j in zip(test, range(len(test))):
+            #    grad_shape['output shape '+str(j)] = i.shape
+
+            save_dict_to_desktop(grad_shape, filename='pre spring', extra_string=extra_string)
+
+            grad = constants.pmean(grad) # This could mean that the mean operation in SPRING is
+                                         # superfluous
+
+            # As of now, spring requires (update, state, params, centered energies, data)
+            # which translates to: (grads, opt_state, params, aux_data.local_enegy, data)
+
+            updates, opt_state = optimizer.update(grad, opt_state, params, key, aux_data.local_energy, data)
+            params = optax.apply_updates(params, updates)
+            return params, opt_state, loss, aux_data
+
+        step = make_training_step(mcmc_step=mcmc_step, optimizer_step=opt_update)
+
+    #########################################################################
+
+
     elif isinstance(optimizer, optax.GradientTransformation):
       # optax/optax-compatible optimizer (ADAM, LAMB, ...)
       opt_state = jax.pmap(optimizer.init)(params)
@@ -562,18 +644,12 @@ def train(cfg: ml_collections.ConfigDict, writer_manager=None):
         return params, opt_state, loss, aux_data
 
       step = make_training_step(mcmc_step=mcmc_step, optimizer_step=opt_update)
+
     elif isinstance(optimizer, kfac_jax.Optimizer):
       step = make_kfac_training_step(
           mcmc_step=mcmc_step,
           damping=cfg.optim.kfac.damping,
           optimizer=optimizer)
-
-    elif cfg.optim.optimizer == 'spring':
-        print('Using SPRING optimizer.')
-
-
-
-
 
     else:
       raise ValueError(f'Unknown optimizer: {optimizer}')

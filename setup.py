@@ -19,6 +19,11 @@ import unittest
 from setuptools import find_packages
 from setuptools import setup
 
+# CPU
+# pip install jaxlib==0.3.25 -f https://storage.googleapis.com/jax-releases/jax_releases.html
+# pip install jax==0.3.25 -f https://storage.googleapis.com/jax-releases/jax_releases.html
+
+# for conda check LapNet website
 
 REQUIRED_PACKAGES = [
     'absl-py==1.4.0',
@@ -30,13 +35,13 @@ REQUIRED_PACKAGES = [
     'optax==0.1.4',
     'flax==0.6.1',
     'numpy==1.21.5',
-    'pyscf==2.1.1',
+    #'pyscf', # Needs to be tested
     'pyblock==0.6',
     'scipy==1.7.3',
     'tables==3.7.0',
-    'pandas==1.3.5',
+    'pandas==1.4.0', # Needs to be tested
     'typing_extensions==4.5.0',
-    'dm-haiku==0.0.9'
+    'dm-haiku==0.0.9',
 ]
 
 
